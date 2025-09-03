@@ -223,10 +223,6 @@ Tested on:
 - Terminals supporting 24-bit color (most modern terminals)
 - AMD and Intel processors
 
-## License
-
-[Add your license information here]
-
 ## Contributing
 
-[Add contribution guidelines here]
+Just submit a PR. 
