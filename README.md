@@ -1,8 +1,11 @@
 # Kode Kronical Perf Monitor
 
-![Kode Kronical Perf Monitor Screenshot](screenshot.png)
+![Kode Kronical Perf Monitor Demo](demo.gif)
 
 A real-time CPU performance monitoring application written in Go that provides a colorful, terminal-based interface for tracking CPU usage and temperature.
+
+_Static screenshot:_  
+![Kode Kronical Perf Monitor Screenshot](screenshot.png)
 
 ## Features
 
@@ -41,7 +44,7 @@ The easiest way to build and run the application:
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd cpu_monitor_go
+cd kode_kronical_perf_monitor
 
 # Build and run (simplest method)
 ./build.sh run
@@ -61,10 +64,16 @@ cd cpu_monitor_go
 # Build optimized static binary
 ./build.sh static
 
+# Build with debug symbols
+./build.sh debug
+
 # Install system-wide
 ./build.sh install
 
-# Check dependencies
+# Clean build artifacts
+./build.sh clean
+
+# Check dependencies only
 ./build.sh check
 
 # Show all options
@@ -77,14 +86,26 @@ cd cpu_monitor_go
 # Build the application
 make
 
-# Or build and run with dependency checks
+# Build optimized static binary
+make build-static
+
+# Build and run with dependency checks
 make dev
+
+# Check stress command availability
+make check-stress
 
 # Install system-wide
 make install
+
+# Uninstall from system
+make uninstall
+
+# Show all targets
+make help
 ```
 
-### Option 2: Manual Build
+### Option 3: Manual Build
 
 ```bash
 # Install dependencies (go.mod is included)
@@ -97,7 +118,7 @@ go build -o cpu_monitor cpu_monitor.go
 ./cpu_monitor
 ```
 
-### Option 3: Direct Go Run
+### Option 4: Direct Go Run
 
 ```bash
 go run cpu_monitor.go
@@ -179,10 +200,14 @@ The application uses the following Go dependencies:
 make help          # Show all available targets
 make               # Build the application  
 make build-static  # Build optimized static binary
+make deps          # Install/update dependencies
 make check-stress  # Check if stress command is available
-make dev           # Check dependencies and run
+make run           # Build and run the application
+make run-check     # Check dependencies and run
+make dev           # Development build with checks
 make clean         # Remove build artifacts
 make install       # Install system-wide (requires sudo)
+make uninstall     # Remove from system
 ```
 
 ### Manual Static Binary

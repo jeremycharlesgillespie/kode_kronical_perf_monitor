@@ -3,7 +3,15 @@
 BINARY_NAME=cpu_monitor
 SOURCE_FILE=cpu_monitor.go
 
-.PHONY: all build clean install deps check help
+# Version information
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")  
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+# Build flags
+LDFLAGS = -X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.date=$(BUILD_DATE)'
+
+.PHONY: all build clean install deps check help version
 
 # Default target
 all: build
@@ -11,13 +19,15 @@ all: build
 # Build the application
 build: deps
 	@echo "Building $(BINARY_NAME)..."
-	go build -o $(BINARY_NAME) $(SOURCE_FILE)
+	@echo "Version: $(VERSION), Commit: $(COMMIT)"
+	go build -ldflags="$(LDFLAGS)" -o $(BINARY_NAME) $(SOURCE_FILE)
 	@echo "Build complete: ./$(BINARY_NAME)"
 
 # Build optimized static binary
 build-static: deps
 	@echo "Building static $(BINARY_NAME)..."
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BINARY_NAME) $(SOURCE_FILE)
+	@echo "Version: $(VERSION), Commit: $(COMMIT)"
+	CGO_ENABLED=0 go build -ldflags="-w -s $(LDFLAGS)" -o $(BINARY_NAME) $(SOURCE_FILE)
 	@echo "Static build complete: ./$(BINARY_NAME)"
 
 # Install dependencies
@@ -69,6 +79,12 @@ uninstall:
 # Development - build and run with checks
 dev: check-stress build run
 
+# Show version information
+version:
+	@echo "Version: $(VERSION)"
+	@echo "Commit:  $(COMMIT)" 
+	@echo "Date:    $(BUILD_DATE)"
+
 # Show help
 help:
 	@echo "CPU Monitor Build System"
@@ -84,6 +100,7 @@ help:
 	@echo "  clean        - Remove build artifacts"
 	@echo "  install      - Install system-wide (requires sudo)"
 	@echo "  uninstall    - Remove from system"
+	@echo "  version      - Show version information"
 	@echo "  help         - Show this help"
 	@echo ""
 	@echo "Quick start:"

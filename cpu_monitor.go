@@ -1,3 +1,7 @@
+// Package main implements a real-time CPU performance monitoring application
+// that provides colorful, terminal-based interface for tracking CPU usage and temperature.
+// The monitor displays per-core usage bars, temperature-based color coding,
+// historical graphs, and includes built-in stress testing capabilities.
 package main
 
 import (
@@ -15,6 +19,13 @@ import (
 	"time"
 
 	"golang.org/x/term"
+)
+
+// Build information - these values are set at build time via -ldflags
+var (
+	version = "dev"     // Application version
+	commit  = "unknown" // Git commit hash
+	date    = "unknown" // Build date
 )
 
 const (
@@ -39,6 +50,8 @@ const (
 	colorOrange  = "\033[38;5;208m"
 )
 
+// CPUStats represents CPU usage statistics parsed from /proc/stat.
+// Each field corresponds to time spent in different CPU states measured in jiffies.
 type CPUStats struct {
 	user   uint64
 	nice   uint64
@@ -50,6 +63,9 @@ type CPUStats struct {
 	steal  uint64
 }
 
+// Monitor represents the main application state and configuration.
+// It manages CPU monitoring, temperature tracking, display rendering,
+// stress testing, and user interaction.
 type Monitor struct {
 	stressCmd       *exec.Cmd
 	stressRunning   bool
@@ -78,6 +94,10 @@ type Monitor struct {
 	lastRenderTime     time.Time    // When we last rendered the display
 }
 
+// NewMonitor creates and initializes a new Monitor instance with default settings.
+// It detects the number of CPU cores, initializes data structures for tracking
+// CPU usage and temperature history, sets up time scale configurations,
+// and checks for stress testing tool availability.
 func NewMonitor() *Monitor {
 	cores := runtime.NumCPU()
 	bufferSize := 4 // Keep 4 samples for averaging
@@ -123,11 +143,16 @@ func NewMonitor() *Monitor {
 	return m
 }
 
+// checkStressAvailable determines if the 'stress' command-line tool is installed
+// and available in the system PATH. Returns true if stress testing is possible.
 func (m *Monitor) checkStressAvailable() bool {
 	_, err := exec.LookPath("stress")
 	return err == nil
 }
 
+// cleanup performs necessary cleanup operations when the application exits.
+// This includes stopping any running stress test, restoring terminal state,
+// showing the cursor, and displaying an exit message.
 func (m *Monitor) cleanup() {
 	if m.stressRunning {
 		m.stopStress()
@@ -139,6 +164,9 @@ func (m *Monitor) cleanup() {
 	fmt.Printf("\n%sExiting...%s\r\n", colorRed, colorReset)
 }
 
+// startStress launches a CPU stress test using the 'stress' command.
+// The stress test will utilize all available CPU cores. Only starts if
+// stress testing is available and not already running.
 func (m *Monitor) startStress() {
 	if !m.stressRunning && m.stressAvailable {
 		m.stressCmd = exec.Command("stress", "--cpu", strconv.Itoa(m.cores))
@@ -149,6 +177,8 @@ func (m *Monitor) startStress() {
 	}
 }
 
+// stopStress terminates any currently running CPU stress test process.
+// Safely kills the stress process and resets the stress state.
 func (m *Monitor) stopStress() {
 	if m.stressRunning && m.stressCmd != nil {
 		m.stressCmd.Process.Kill()
@@ -157,6 +187,9 @@ func (m *Monitor) stopStress() {
 	}
 }
 
+// getCPUStats reads and parses CPU usage statistics from /proc/stat.
+// Returns an array of CPUStats where index 0 is total CPU and subsequent
+// indices represent individual CPU cores. Falls back to cached data on error.
 func (m *Monitor) getCPUStats() []CPUStats {
 	file, err := os.Open("/proc/stat")
 	if err != nil {
@@ -209,6 +242,9 @@ func (m *Monitor) getCPUStats() []CPUStats {
 	return stats
 }
 
+// calculateCPUUsage computes CPU usage percentages by comparing current
+// CPU statistics with previous readings. Returns total CPU usage and
+// per-core usage percentages (0-100%).
 func (m *Monitor) calculateCPUUsage() (float64, []float64) {
 	currentStats := m.getCPUStats()
 	defer func() { m.lastCPUStats = currentStats }()
@@ -226,6 +262,9 @@ func (m *Monitor) calculateCPUUsage() (float64, []float64) {
 	return totalUsage, coreUsages
 }
 
+// calculateSingleCPUUsage computes the CPU usage percentage for a single CPU
+// or core by comparing previous and current CPUStats. Uses the standard
+// Linux CPU usage calculation: (total_time - idle_time) / total_time * 100.
 func (m *Monitor) calculateSingleCPUUsage(prev, curr CPUStats) float64 {
 	prevIdle := prev.idle + prev.iowait
 	currIdle := curr.idle + curr.iowait
@@ -254,6 +293,10 @@ func (m *Monitor) calculateSingleCPUUsage(prev, curr CPUStats) float64 {
 	return usage
 }
 
+// getTemperature attempts to read the current CPU temperature in Celsius.
+// First tries AMD k10temp sensor via 'sensors' command, then falls back
+// to various /sys/class/hwmon/ and thermal zone sensors. Returns 0 if no
+// temperature source is available.
 func (m *Monitor) getTemperature() float64 {
 	// Try k10temp using sensors command first (most accurate for AMD)
 	output, err := exec.Command("sensors", "k10temp-pci-00c3").Output()
@@ -297,6 +340,9 @@ func (m *Monitor) getTemperature() float64 {
 	return 0
 }
 
+// updateMinMax updates the recorded minimum and maximum temperature values
+// based on the provided temperature reading. Ignores zero temperatures
+// when updating minimum values.
 func (m *Monitor) updateMinMax(temp float64) {
 	if temp < m.minTemp && temp > 0 {
 		m.minTemp = temp
@@ -306,11 +352,17 @@ func (m *Monitor) updateMinMax(temp float64) {
 	}
 }
 
+// shiftCpuTempHistory adds a new CPU usage and temperature data point to
+// the historical record by shifting all existing data left and appending
+// the new values to the end of the history array.
 func (m *Monitor) shiftCpuTempHistory(newCpu, newTemp float64) {
 	copy(m.cpuTempHistory[0:], m.cpuTempHistory[1:])
 	m.cpuTempHistory[len(m.cpuTempHistory)-1] = struct{cpu, temp float64}{newCpu, newTemp}
 }
 
+// resizeHistory adjusts the size of the CPU/temperature history array
+// when the time scale changes. Truncates or pads the history as needed
+// and rebuilds the display buffer to maintain visual consistency.
 func (m *Monitor) resizeHistory() {
 	currentWidth := m.timeScales[m.currentTimeScale].width
 	if len(m.cpuTempHistory) != currentWidth {
@@ -332,6 +384,9 @@ func (m *Monitor) resizeHistory() {
 	}
 }
 
+// rebuildDisplayBuffer reconstructs the fixed-width display buffer by
+// sampling from the variable-width history array. This creates a stable
+// graph display that doesn't jump around as new data arrives.
 func (m *Monitor) rebuildDisplayBuffer() {
 	// Sample from history to create stable display buffer
 	historyLen := len(m.cpuTempHistory)
@@ -347,12 +402,18 @@ func (m *Monitor) rebuildDisplayBuffer() {
 	}
 }
 
+// updateDisplayBuffer shifts the display buffer left and adds new CPU
+// and temperature values to the rightmost position. Used for real-time
+// updates of the graph display.
 func (m *Monitor) updateDisplayBuffer(newCpu, newTemp float64) {
 	// Shift display buffer left and add new value
 	copy(m.displayBuffer[0:], m.displayBuffer[1:])
 	m.displayBuffer[len(m.displayBuffer)-1] = struct{cpu, temp float64}{newCpu, newTemp}
 }
 
+// interpolateColor performs linear interpolation between two RGB colors
+// based on a value within a given range. Returns interpolated RGB values
+// as integers (0-255). Used for creating smooth color gradients.
 func interpolateColor(val, min, max float64, r1, g1, b1, r2, g2, b2 int) (int, int, int) {
 	// Normalize value between 0 and 1
 	t := (val - min) / (max - min)
@@ -371,6 +432,9 @@ func interpolateColor(val, min, max float64, r1, g1, b1, r2, g2, b2 int) (int, i
 	return r, g, b
 }
 
+// getTempColor returns an ANSI 24-bit color escape sequence based on
+// the provided temperature in Celsius. Creates a gradient from blue (cool)
+// through green and yellow to red and purple (critical temperatures).
 func getTempColor(temp float64) string {
 	// Color gradient based on temperature (Celsius)
 	// Cool (35-45°C) -> Warm (50-70°C) -> Hot (75-85°C) -> Critical (90°C+)
@@ -423,6 +487,9 @@ func getTempColor(temp float64) string {
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 }
 
+// getUsageColor returns an ANSI 24-bit color escape sequence based on
+// CPU usage percentage (0-100%). Creates a gradient from dark blue (low usage)
+// through cyan, green, yellow, orange to red (high usage).
 func getUsageColor(usage float64) string {
 	// Define color gradient stops (usage%, r, g, b)
 	// Using a blue -> cyan -> green -> yellow -> orange -> red gradient
@@ -473,6 +540,9 @@ func getUsageColor(usage float64) string {
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 }
 
+// getGridDimensions calculates optimal grid layout (columns, rows) for
+// displaying the given number of CPU cores. Uses predefined layouts for
+// common core counts and falls back to square root approximation for others.
 func getGridDimensions(count int) (cols, rows int) {
 	switch {
 	case count <= 4:
@@ -499,6 +569,9 @@ func getGridDimensions(count int) (cols, rows int) {
 	}
 }
 
+// updateSampleBuffer adds new CPU usage samples to the rolling buffer
+// for each CPU core. Maintains a fixed buffer size by removing oldest
+// samples when the buffer is full. Used for calculating rolling averages.
 func (m *Monitor) updateSampleBuffer(newSamples []float64) {
 	// Add new samples to buffer and maintain rolling window
 	for i := 0; i < m.cores; i++ {
@@ -511,6 +584,9 @@ func (m *Monitor) updateSampleBuffer(newSamples []float64) {
 	}
 }
 
+// calculateRollingAverage computes weighted rolling averages for all CPU cores
+// using the sample buffer. More recent samples have higher weights, creating
+// smooth but responsive CPU usage values. Returns clamped values (0-100%).
 func (m *Monitor) calculateRollingAverage() []float64 {
 	avg := make([]float64, m.cores)
 	for i := 0; i < m.cores; i++ {
@@ -544,6 +620,9 @@ func (m *Monitor) calculateRollingAverage() []float64 {
 	return avg
 }
 
+// interpolateCoreUsages provides smooth animation between CPU usage values
+// by gradually transitioning current display values toward target rolling
+// averages. This creates fluid 60fps animations without jittery movements.
 func (m *Monitor) interpolateCoreUsages() []float64 {
 	// Calculate smooth interpolation towards rolling average
 	targetValues := m.calculateRollingAverage()
@@ -570,6 +649,9 @@ func (m *Monitor) interpolateCoreUsages() []float64 {
 	return m.currentCoreUsages
 }
 
+// displayHelpPage renders the comprehensive help screen showing all available
+// controls, time scale options, display explanations, and temperature legend.
+// Provides detailed information about how to use the monitoring application.
 func (m *Monitor) displayHelpPage() {
 	fmt.Printf("%s=== Kode Kronical Perf Monitor - Help ===%s\r\n\r\n", colorGreen, colorReset)
 	
@@ -642,6 +724,9 @@ func (m *Monitor) displayHelpPage() {
 	fmt.Printf("\r\n\r\n%sPress H, ESC, or Q to return to main view%s\r\n", colorYellow, colorReset)
 }
 
+// displayTemperatureLegend shows a color-coded temperature reference chart
+// with temperature ranges from Cool (40°C) to Critical (95°C). Each range
+// is displayed with its corresponding color for easy interpretation.
 func (m *Monitor) displayTemperatureLegend() {
 	fmt.Printf("%sTemperature Legend:%s\r\n", colorCyan, colorReset)
 	
@@ -684,6 +769,9 @@ func (m *Monitor) displayTemperatureLegend() {
 	fmt.Print("\r\n\r\n")
 }
 
+// displayCPUCores renders the CPU core usage visualization as colored
+// bar characters arranged in a grid. Bar height represents usage percentage,
+// and color indicates estimated core temperature based on usage and package temp.
 func (m *Monitor) displayCPUCores(coreUsages []float64, currentTemp float64) {
 	cols, rows := getGridDimensions(m.cores)
 	
@@ -753,6 +841,9 @@ func (m *Monitor) displayCPUCores(coreUsages []float64, currentTemp float64) {
 	m.displayTemperatureLegend()
 }
 
+// drawCombinedGraph renders the historical CPU usage and temperature chart.
+// Height represents CPU usage percentage (0-100%) and color represents
+// temperature at each point in time. Shows current values and time scale info.
 func (m *Monitor) drawCombinedGraph(currentCpu, currentTemp float64) {
 	currentScale := m.timeScales[m.currentTimeScale]
 	fmt.Printf("%sCPU Usage & Temperature Graph%s Current: %s%.1f%%%s / %s%.1f°C%s%*s\r\n", 
@@ -799,6 +890,9 @@ func (m *Monitor) drawCombinedGraph(currentCpu, currentTemp float64) {
 	fmt.Printf("        %s%-10s%s\r\n", colorCyan, currentScale.name, colorReset)
 }
 
+// run starts the main monitoring loop with terminal setup, signal handling,
+// and separate tickers for data polling (500ms) and rendering (60fps).
+// Handles user input for stress testing and view controls until exit.
 func (m *Monitor) run() {
 	// Setup terminal
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -956,7 +1050,50 @@ func (m *Monitor) run() {
 	}
 }
 
+// showVersion displays version and build information to stdout.
+func showVersion() {
+	fmt.Printf("Kode Kronical Perf Monitor %s\n", version)
+	fmt.Printf("Commit: %s\n", commit)
+	fmt.Printf("Built:  %s\n", date)
+	fmt.Printf("Go:     %s\n", runtime.Version())
+}
+
+// showUsage displays command-line usage information.
+func showUsage() {
+	fmt.Printf("Usage: %s [options]\n\n", os.Args[0])
+	fmt.Println("A real-time CPU performance monitoring application")
+	fmt.Println("Options:")
+	fmt.Println("  -v, --version    Show version information")
+	fmt.Println("  -h, --help       Show this help message")
+	fmt.Println("")
+	fmt.Println("Controls (during monitoring):")
+	fmt.Println("  SPACE   - Toggle CPU stress test")
+	fmt.Println("  W       - Zoom in (shorter time scale)")  
+	fmt.Println("  S       - Zoom out (longer time scale)")
+	fmt.Println("  H       - Show help page")
+	fmt.Println("  ESC/Q   - Exit")
+	fmt.Println("  Ctrl+C  - Quit")
+}
+
+// main is the application entry point. Creates a new Monitor instance,
+// sets up cleanup handling, and starts the monitoring loop.
 func main() {
+	// Handle command-line arguments
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-v", "--version":
+			showVersion()
+			return
+		case "-h", "--help":
+			showUsage()
+			return
+		default:
+			fmt.Printf("Unknown option: %s\n\n", os.Args[1])
+			showUsage()
+			os.Exit(1)
+		}
+	}
+
 	monitor := NewMonitor()
 	defer monitor.cleanup()
 	monitor.run()

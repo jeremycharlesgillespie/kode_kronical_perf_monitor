@@ -96,22 +96,51 @@ setup_module() {
     print_success "Dependencies ready"
 }
 
+# Function to get build information
+get_build_info() {
+    # Get version from git tags or set default
+    if command_exists git && [ -d ".git" ]; then
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+        COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    else
+        VERSION="dev"
+        COMMIT="unknown"
+    fi
+    
+    # Build date
+    BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+    
+    # Export for use in build function
+    export BUILD_VERSION="$VERSION"
+    export BUILD_COMMIT="$COMMIT"
+    export BUILD_DATE="$BUILD_DATE"
+}
+
 # Function to build the application
 build_app() {
     local build_type="$1"
     
+    # Get build information
+    get_build_info
+    
+    # Create ldflags with version information
+    LDFLAGS="-X 'main.version=${BUILD_VERSION}' -X 'main.commit=${BUILD_COMMIT}' -X 'main.date=${BUILD_DATE}'"
+    
     case "$build_type" in
         "static")
             print_step "Building static binary..."
-            CGO_ENABLED=0 go build -ldflags="-w -s" -o "$BINARY_NAME" "$SOURCE_FILE"
+            print_info "Version: $BUILD_VERSION, Commit: $BUILD_COMMIT"
+            CGO_ENABLED=0 go build -ldflags="-w -s $LDFLAGS" -o "$BINARY_NAME" "$SOURCE_FILE"
             ;;
         "debug")
             print_step "Building debug binary..."
-            go build -gcflags="-N -l" -o "$BINARY_NAME" "$SOURCE_FILE"
+            print_info "Version: $BUILD_VERSION, Commit: $BUILD_COMMIT"
+            go build -gcflags="-N -l" -ldflags="$LDFLAGS" -o "$BINARY_NAME" "$SOURCE_FILE"
             ;;
         *)
             print_step "Building standard binary..."
-            go build -o "$BINARY_NAME" "$SOURCE_FILE"
+            print_info "Version: $BUILD_VERSION, Commit: $BUILD_COMMIT"
+            go build -ldflags="$LDFLAGS" -o "$BINARY_NAME" "$SOURCE_FILE"
             ;;
     esac
     
