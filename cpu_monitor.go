@@ -51,9 +51,10 @@ type CPUStats struct {
 }
 
 type Monitor struct {
-	stressCmd      *exec.Cmd
-	stressRunning  bool
-	cores          int
+	stressCmd       *exec.Cmd
+	stressRunning   bool
+	stressAvailable bool
+	cores           int
 	minTemp        float64
 	maxTemp        float64
 	cpuTempHistory []struct{cpu, temp float64} // Combined CPU usage and temperature history
@@ -116,7 +117,15 @@ func NewMonitor() *Monitor {
 	// Initialize CPU stats
 	m.getCPUStats()
 	
+	// Check if stress command is available
+	m.stressAvailable = m.checkStressAvailable()
+	
 	return m
+}
+
+func (m *Monitor) checkStressAvailable() bool {
+	_, err := exec.LookPath("stress")
+	return err == nil
 }
 
 func (m *Monitor) cleanup() {
@@ -131,10 +140,12 @@ func (m *Monitor) cleanup() {
 }
 
 func (m *Monitor) startStress() {
-	if !m.stressRunning {
+	if !m.stressRunning && m.stressAvailable {
 		m.stressCmd = exec.Command("stress", "--cpu", strconv.Itoa(m.cores))
-		m.stressCmd.Start()
-		m.stressRunning = true
+		err := m.stressCmd.Start()
+		if err == nil {
+			m.stressRunning = true
+		}
 	}
 }
 
@@ -563,7 +574,11 @@ func (m *Monitor) displayHelpPage() {
 	fmt.Printf("%s=== Kode Kronical Perf Monitor - Help ===%s\r\n\r\n", colorGreen, colorReset)
 	
 	fmt.Printf("%sControls:%s\r\n", colorCyan, colorReset)
-	fmt.Printf("  %sSPACE%s  - Toggle stress test ON/OFF\r\n", colorYellow, colorReset)
+	if m.stressAvailable {
+		fmt.Printf("  %sSPACE%s  - Toggle stress test ON/OFF\r\n", colorYellow, colorReset)
+	} else {
+		fmt.Printf("  %sSPACE%s  - Toggle stress test (stress command not available)\r\n", colorDarkYellow, colorReset)
+	}
 	fmt.Printf("  %sW%s      - Zoom in (shorter time scale)\r\n", colorYellow, colorReset)
 	fmt.Printf("  %sS%s      - Zoom out (longer time scale)\r\n", colorYellow, colorReset)
 	fmt.Printf("  %sH%s      - Toggle this help page\r\n", colorYellow, colorReset)
@@ -913,9 +928,13 @@ func (m *Monitor) run() {
 				// Show main monitoring view with minimal instructions
 				fmt.Printf("%s=== Kode Kronical Perf Monitor ===%s  %sPress H for help%s\r\n", colorGreen, colorReset, colorYellow, colorReset)
 			
-				status := fmt.Sprintf("%s[STRESS OFF]%s", colorGreen, colorReset)
-				if m.stressRunning {
+				var status string
+				if !m.stressAvailable {
+					status = fmt.Sprintf("%s[STRESS N/A]%s", colorDarkYellow, colorReset)
+				} else if m.stressRunning {
 					status = fmt.Sprintf("%s[STRESS ON]%s", colorRed, colorReset)
+				} else {
+					status = fmt.Sprintf("%s[STRESS OFF]%s", colorGreen, colorReset)
 				}
 				
 				veryHotColor := getTempColor(85.0) // Same color as "Very Hot" in temperature legend
